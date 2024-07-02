@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Retro Blocky Snake</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    body {
+      background-color: #222;
+      font-family: 'Press Start 2P', cursive;
+      color: #00FF00;
+      text-align: center;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    canvas {
+      background-color: #000;
+      border: 2px solid #00FF00;
+    }
+    table {
+      margin: 20px auto;
+      border-collapse: collapse;
+    }
+    th, td {
+      border: 1px solid #00FF00;
+      padding: 5px;
+    }
+    button {
+      background-color: #00FF00;
+      color: #222;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      font-family: 'Press Start 2P', cursive;
+    }
+    #game-container {
+      width: 90vw;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    #game-canvas {
+      width: 100%;
+      height: auto;
+    }
+    .fade-out {
+      transition: opacity 0.5s ease;
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+  </div>
+  <div id="leaderboard"></div>
+  <button id="play-again-button" style="display: none;" aria-label="Play Again">Play Again</button>
+  <button id="full-screen-button" aria-label="Full Screen">Full Screen</button>
+
+  <script>
+    const GRID_SIZE = 20;
+    const SNAKE_COLOR = "#00FF00";
+    const FOOD_COLOR = "#FF0000";
+    const BG_COLOR = "#222222";
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzE4vD4Xf09-Bu4qrkWMQdl_7k0dTvmNg6jjHKBx4k55EHWAF98wIgE1PiajtoIb1e8zQ/exec";
+
+    let snake = [{ x: 5, y: 5 }];
+    let food = {};
+    let score = 0;
+    let dx = 0;  // Initially stationary
+    let dy = 0;  // Initially stationary
+    let gameOver = false;
+    let playerName = "";
+    let speed = 100;  // Speed in milliseconds
+    let lastUpdateTime = 0;  // Last time the game loop was updated
+
+    const gameContainer = document.getElementById("game-container");
+    const canvas = document.getElementById("game-canvas");
+    const ctx = canvas.getContext("2d");
+
+    function resizeCanvas() {
+      canvas.width = Math.floor(gameContainer.clientWidth / GRID_SIZE) * GRID_SIZE;
+      canvas.height = Math.floor((gameContainer.clientWidth / GRID_SIZE) * 0.75) * GRID_SIZE;
+    }
+
+    window.addEventListener('resize', debounce(resizeCanvas, 100));
+    resizeCanvas();
+
+    function drawSnake() {
+      snake.forEach(segment => {
+        ctx.fillStyle = SNAKE_COLOR;
+        ctx.fillRect(segment.x * GRID_SIZE, segment.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+      });
+    }
+
+    function drawFood() {
+      ctx.fillStyle = FOOD_COLOR;
+      ctx.fillRect(food.x * GRID_SIZE, food.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+    }
+
+    function gameLoop(currentTime) {
+      if (gameOver) return;
+
+      if (currentTime - lastUpdateTime > speed) {
+        lastUpdateTime = currentTime;
+        const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+        snake.unshift(head);
+
+        if (head.x === food.x && head.y === food.y) {
+          score++;
+          generateFood();
+        } else {
+          snake.pop();
+        }
+
+        if (
+          head.x < 0 ||
+          head.x >= canvas.width / GRID_SIZE ||
+          head.y < 0 ||
+          head.y >= canvas.height / GRID_SIZE ||
+          checkCollision(head)
+        ) {
+          gameOver = true;
+          showGameOverScreen();
+          return;
+        }
+
+        ctx.fillStyle = BG_COLOR;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawSnake();
+        drawFood();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function showGameOverScreen() {
+      canvas.classList.add("fade-out");
+
+      setTimeout(() => {
+        ctx.fillStyle = BG_COLOR;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = SNAKE_COLOR;
+        ctx.font = "30px 'Press Start 2P'";
+        ctx.textAlign = "center";
+        ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 30);
+
+        ctx.font = "20px 'Press Start 2P'";
+        ctx.fillText("Score: " + score, canvas.width / 2, canvas.height / 2);
+
+        fetchLeaderboard()
+          .then(leaderboardData => {
+            const rank = leaderboardData.findIndex(entry => entry[1] === playerName && entry[2] === score) + 1;
+            ctx.fillText("Rank: " + rank, canvas.width / 2, canvas.height / 2 + 30);
+          })
+          .catch(error => {
+            console.error("Error fetching leaderboard:", error);
+            ctx.fillText("Offline Mode", canvas.width / 2, canvas.height / 2 + 30);
+          });
+
+        document.getElementById("play-again-button").style.display = "block";
+
+        canvas.classList.remove("fade-out");
+      }, 500);
+    }
+
+    function checkCollision(head) {
+      // Check for collision with the rest of the snake excluding the head
+      for (let i = 1; i < snake.length; i++) {
+        if (snake[i].x === head.x && snake[i].y === head.y) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function generateFood() {
+      let validPosition = false;
+      while (!validPosition) {
+        food = {
+          x: Math.floor(Math.random() * (canvas.width / GRID_SIZE)),
+          y: Math.floor(Math.random() * (canvas.height / GRID_SIZE)),
+        };
+        validPosition = !snake.some(segment => segment.x === food.x && segment.y === food.y);
+      }
+    }
+    document.addEventListener("keydown", event => {
+    const LEFT_KEY = 37;
+    const UP_KEY = 38;
+    const RIGHT_KEY = 39;
+    const DOWN_KEY = 40;
+    const A_KEY = 65;
+    const W_KEY = 87;
+    const D_KEY = 68;
+    const S_KEY = 83;
+
+    const keyPressed = event.keyCode;
+    const goingUp = dy === -1;
+    const goingDown = dy === 1;
+    const goingRight = dx === 1;
+    const goingLeft = dx === -1;
+
+    if ((keyPressed === LEFT_KEY || keyPressed === A_KEY) && !goingRight) {
+      dx = -1;
+      dy = 0;
+    }
+
+    if ((keyPressed === UP_KEY || keyPressed === W_KEY) && !goingDown) {
+      dx = 0;
+      dy = -1;
+    }
+
+    if ((keyPressed === RIGHT_KEY || keyPressed === D_KEY) && !goingLeft) {
+      dx = 1;
+      dy = 0;
+    }
+
+    if ((keyPressed === DOWN_KEY || keyPressed === S_KEY) && !goingUp) {
+      dx = 0;
+      dy = 1;
+    }
+  });
+
+    function initGame() {
+      if (!playerName) {
+        playerName = prompt("Enter your name:", "Guest");
+        if (!playerName) {
+          playerName = "Guest";
+        }
+      }
+
+      snake = [{ x: Math.floor(canvas.width / (2 * GRID_SIZE)), y: Math.floor(canvas.height / (2 * GRID_SIZE)) }];
+      generateFood();
+      score = 0;
+      dx = 0;  // Initially stationary
+      dy = 0;  // Initially stationary
+      gameOver = false;
+      document.getElementById("play-again-button").style.display = "none";
+
+      ctx.fillStyle = BG_COLOR;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawSnake();
+      drawFood();
+
+      lastUpdateTime = 0;
+      requestAnimationFrame(gameLoop);
+    }
+
+    async function submitScore() {
+      try {
+        const response = await fetch(WEB_APP_URL, {
+          method: "POST",
+          body: JSON.stringify({ name: playerName, score: score }),
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (response.ok) {
+          fetchLeaderboard().then(updateLeaderboardDisplay);
+        } else {
+          console.error("Error submitting score:", response.status, response.statusText);
+        }
+      } catch (error) {
+        console.error("Error submitting score:", error);
+      }
+    }
+
+    async function fetchLeaderboard() {
+      try {
+        const response = await fetch(WEB_APP_URL);
+        if (!response.ok) {
+          throw new Error("Network response was not ok.");
+        }
+
+        const data = await response.json();
+        const leaderboardData = data.values ? data.values.slice(1) : [];
+
+        leaderboardData.sort((a, b) => b[2] - a[2]);
+
+        return leaderboardData;
+      } catch (error) {
+        console.error("Error fetching leaderboard:", error);
+        throw error;  // rethrow to handle offline mode
+      }
+    }
+
+    function updateLeaderboardDisplay(leaderboardData) {
+      const leaderboardDiv = document.getElementById("leaderboard");
+      if (!leaderboardDiv) {
+        return;
+      }
+
+      leaderboardDiv.innerHTML = "";
+
+      const table = document.createElement("table");
+      const headerRow = table.insertRow();
+      headerRow.insertCell().textContent = "Rank";
+      headerRow.insertCell().textContent = "Name";
+      headerRow.insertCell().textContent = "Score";
+
+      for (let i = 0; i < Math.min(leaderboardData.length, 10); i++) {
+        const row = table.insertRow();
+        row.insertCell().textContent = i + 1;
+        row.insertCell().textContent = leaderboardData[i][1];
+        row.insertCell().textContent = leaderboardData[i][2];
+      }
+
+      leaderboardDiv.appendChild(table);
+    }
+
+    function displayLeaderboard() {
+      let leaderboardDiv = document.getElementById("leaderboard");
+      if (!leaderboardDiv) {
+        leaderboardDiv = document.createElement("div");
+        leaderboardDiv.id = "leaderboard";
+        document.body.appendChild(leaderboardDiv);
+      }
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+
+    document.getElementById("full-screen-button").addEventListener("click", toggleFullScreen);
+    document.getElementById("play-again-button").addEventListener("click", initGame);
+
+    initGame();
+    fetchLeaderboard()
+      .then(updateLeaderboardDisplay)
+      .catch(error => {
+        console.error("Failed to fetch leaderboard:", error);
+        const leaderboardDiv = document.getElementById("leaderboard");
+        if (leaderboardDiv) {
+          leaderboardDiv.innerHTML = "<p>Offline Mode: Leaderboard not available.</p>";
+        }
+      });
+    displayLeaderboard();
+
+    function debounce(func, wait) {
+      let timeout;
+      return function (...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+      };
+    }
+  </script>
+  <script type="module">
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
+    // TODO: Add SDKs for Firebase products that you want to use
+    // https://firebase.google.com/docs/web/setup#available-libraries
+  
+    // Your web app's Firebase configuration
+    // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+    const firebaseConfig = {
+      apiKey: "AIzaSyAOD8znQkOOR6_4d4sm7_1OHPUmBmqL4FE",
+      authDomain: "snek-c1532.firebaseapp.com",
+      projectId: "snek-c1532",
+      storageBucket: "snek-c1532.appspot.com",
+      messagingSenderId: "837892367719",
+      appId: "1:837892367719:web:30711ba63232ade7c7bbc2",
+      measurementId: "G-WR1FYYMCK6"
+    };
+  
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+  </script>
+</body>
+</html>

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Retro Blocky Snake</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    body {
+      background-color: #222;
+      font-family: 'Press Start 2P', cursive;
+      color: #00FF00;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    .main-container {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      width: 100%;
+    }
+    #game-container {
+      width: 60vw;
+      max-width: 600px;
+      margin-right: 20px;
+    }
+    #game-canvas {
+      width: 100%;
+      height: auto;
+      border: 2px solid #00FF00; /* Ensure border is visible */
+    }
+    #leaderboard-container {
+      width: 20vw;
+      max-width: 300px;
+    }
+    #leaderboard {
+      margin: 10px auto;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      border: 1px solid #00FF00;
+      padding: 3px;
+    }
+    button {
+      background-color: #00FF00;
+      color: #222;
+      border: none;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: 'Press Start 2P', cursive;
+      margin: 5px;
+    }
+    .fade-out {
+      transition: opacity 0.5s ease;
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <div id="game-container">
+      <canvas id="game-canvas"></canvas>
+    </div>
+    <div id="leaderboard-container">
+      <div id="leaderboard"></div>
+      <button id="play-again-button" style="display: none;" aria-label="Play Again">Play Again</button>
+      <button id="full-screen-button" aria-label="Full Screen">Full Screen</button>
+    </div>
+  </div>
+
+  <script type="module">
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, where, updateDoc, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyAOD8znQkOOR6_4d4sm7_1OHPUmBmqL4FE",
+        authDomain: "snek-c1532.firebaseapp.com",
+        databaseURL: "https://snek-c1532-default-rtdb.firebaseio.com",
+        projectId: "snek-c1532",
+        storageBucket: "snek-c1532",
+        messagingSenderId: "837892367719",
+        appId: "1:837892367719:web:30711ba63232ade7c7bbc2",
+        measurementId: "G-WR1FYYMCK6"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const GRID_SIZE = 20;
+    const SNAKE_COLOR = "#00FF00";
+    const FOOD_COLOR = "#FF0000";
+    const BG_COLOR = "#222222";
+
+    let snake = [{ x: 5, y: 5 }];
+    let food = {};
+    let score = 0;
+    let dx = 0;  // Initially stationary
+    let dy = 0;  // Initially stationary
+    let gameOver = false;
+    let playerName = "";
+    let speed = 100;  // Speed in milliseconds
+    let lastUpdateTime = 0;  // Last time the game loop was updated
+
+    const gameContainer = document.getElementById("game-container");
+    const canvas = document.getElementById("game-canvas");
+    const ctx = canvas.getContext("2d");
+
+    function resizeCanvas() {
+      const width = Math.floor(gameContainer.clientWidth / GRID_SIZE) * GRID_SIZE;
+      const height = Math.floor((gameContainer.clientWidth / GRID_SIZE) * 0.75) * GRID_SIZE;
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    window.addEventListener('resize', debounce(resizeCanvas, 100));
+    resizeCanvas();
+
+    function drawSnake() {
+      snake.forEach(segment => {
+        ctx.fillStyle = SNAKE_COLOR;
+        ctx.fillRect(segment.x * GRID_SIZE, segment.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+      });
+    }
+
+    function drawFood() {
+      ctx.fillStyle = FOOD_COLOR;
+      ctx.fillRect(food.x * GRID_SIZE, food.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+    }
+
+    function gameLoop(currentTime) {
+      if (gameOver) return;
+
+      if (currentTime - lastUpdateTime > speed) {
+        lastUpdateTime = currentTime;
+        const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+        snake.unshift(head);
+
+        if (head.x === food.x && head.y === food.y) {
+          score++;
+          generateFood();
+        } else {
+          snake.pop();
+        }
+
+        if (
+          head.x < 0 ||
+          head.x >= canvas.width / GRID_SIZE ||
+          head.y < 0 ||
+          head.y >= canvas.height / GRID_SIZE ||
+          checkCollision(head)
+        ) {
+          gameOver = true;
+          showGameOverScreen();
+          submitScore();
+          return;
+        }
+
+        ctx.fillStyle = BG_COLOR;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawSnake();
+        drawFood();
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function showGameOverScreen() {
+      canvas.classList.add("fade-out");
+
+      setTimeout(() => {
+        ctx.fillStyle = BG_COLOR;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = SNAKE_COLOR;
+        ctx.font = "30px 'Press Start 2P'";
+        ctx.textAlign = "center";
+        ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 30);
+
+        ctx.font = "20px 'Press Start 2P'";
+        ctx.fillText("Score: " + score, canvas.width / 2, canvas.height / 2);
+
+        fetchLeaderboard()
+          .then(leaderboardData => {
+            const playerEntry = leaderboardData.find(entry => entry.name === playerName);
+            const playerRank = playerEntry ? leaderboardData.indexOf(playerEntry) + 1 : -1;
+            const rankMessage = playerRank > 0 ? "Rank: " + playerRank : "LOSER";
+            ctx.fillText(rankMessage, canvas.width / 2, canvas.height / 2 + 30);
+          })
+          .catch(error => {
+            console.error("Error fetching leaderboard:", error);
+            ctx.fillText("Offline Mode", canvas.width / 2, canvas.height / 2 + 30);
+          });
+
+        document.getElementById("play-again-button").style.display = "block";
+
+        canvas.classList.remove("fade-out");
+      }, 500);
+    }
+
+    function checkCollision(head) {
+      // Check for collision with the rest of the snake excluding the head
+      for (let i = 1; i < snake.length; i++) {
+        if (snake[i].x === head.x && snake[i].y === head.y) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function generateFood() {
+      let validPosition = false;
+      while (!validPosition) {
+        food = {
+          x: Math.floor(Math.random() * (canvas.width / GRID_SIZE)),
+          y: Math.floor(Math.random() * (canvas.height / GRID_SIZE)),
+        };
+        validPosition = !snake.some(segment => segment.x === food.x && segment.y === food.y);
+      }
+    }
+
+    document.addEventListener("keydown", event => {
+      const LEFT_KEY = 37;
+      const UP_KEY = 38;
+      const RIGHT_KEY = 39;
+      const DOWN_KEY = 40;
+      const A_KEY = 65;
+      const W_KEY = 87;
+      const D_KEY = 68;
+      const S_KEY = 83;
+      const R_KEY = 82;  // R key
+
+      const keyPressed = event.keyCode;
+      const goingUp = dy === -1;
+      const goingDown = dy === 1;
+      const goingRight = dx === 1;
+      const goingLeft = dx === -1;
+
+      if ((keyPressed === LEFT_KEY || keyPressed === A_KEY) && !goingRight) {
+        dx = -1;
+        dy = 0;
+      }
+
+      if ((keyPressed === UP_KEY || keyPressed === W_KEY) && !goingDown) {
+        dx = 0;
+        dy = -1;
+      }
+
+      if ((keyPressed === RIGHT_KEY || keyPressed === D_KEY) && !goingLeft) {
+        dx = 1;
+        dy = 0;
+      }
+
+      if ((keyPressed === DOWN_KEY || keyPressed === S_KEY) && !goingUp) {
+        dx = 0;
+        dy = 1;
+      }
+
+      if (keyPressed === R_KEY) {
+        initGame();  // Restart the game
+      }
+    });
+
+    function initGame() {
+      if (!playerName) {
+        playerName = prompt("Enter your name:", "Guest");
+        if (!playerName) {
+          playerName = "Guest";
+        }
+      }
+
+      snake = [{ x: Math.floor(canvas.width / (2 * GRID_SIZE)), y: Math.floor(canvas.height / (2 * GRID_SIZE)) }];
+      generateFood();
+      score = 0;
+      dx = 0;  // Initially stationary
+      dy = 0;  // Initially stationary
+      gameOver = false;
+      document.getElementById("play-again-button").style.display = "none";
+
+      ctx.fillStyle = BG_COLOR;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawSnake();
+      drawFood();
+
+      lastUpdateTime = 0;
+      requestAnimationFrame(gameLoop);
+    }
+
+    async function submitScore() {
+      try {
+        const leaderboardRef = collection(db, "leaderboard");
+        const playerQuery = query(leaderboardRef, where("name", "==", playerName));
+        const playerSnapshot = await getDocs(playerQuery);
+
+        if (!playerSnapshot.empty) {
+          const playerDoc = playerSnapshot.docs[0];
+          const playerData = playerDoc.data();
+
+          if (score > playerData.score) {
+            const playerDocRef = doc(db, "leaderboard", playerDoc.id);
+            await updateDoc(playerDocRef, { score: score });
+            console.log("Updated player's score");
+          }
+        } else {
+          await addDoc(leaderboardRef, {
+            name: playerName,
+            score: score,
+            timestamp: new Date() // optional, useful for sorting
+          });
+          console.log("Added new player's score");
+        }
+
+        fetchLeaderboard().then(updateLeaderboardDisplay);
+      } catch (error) {
+        console.error("Error adding/updating document: ", error);
+      }
+    }
+
+    async function fetchLeaderboard() {
+      try {
+        const leaderboardRef = collection(db, "leaderboard");
+        const q = query(leaderboardRef, orderBy("score", "desc"), limit(10));
+        const querySnapshot = await getDocs(q);
+        const leaderboardData = [];
+        querySnapshot.forEach((doc) => {
+          leaderboardData.push(doc.data());
+        });
+        console.log("Fetched leaderboard data:", leaderboardData); // Debugging line
+        return leaderboardData;
+      } catch (error) {
+        console.error("Error fetching leaderboard:", error); // Debugging line
+        throw error;  // rethrow to handle offline mode
+      }
+    }
+
+    function updateLeaderboardDisplay(leaderboardData) {
+      const leaderboardDiv = document.getElementById("leaderboard");
+      if (!leaderboardDiv) {
+        return;
+      }
+
+      leaderboardDiv.innerHTML = "";
+
+      const table = document.createElement("table");
+      const headerRow = table.insertRow();
+      headerRow.insertCell().textContent = "Rank";
+      headerRow.insertCell().textContent = "Name";
+      headerRow.insertCell().textContent = "Score";
+
+      leaderboardData.forEach((entry, index) => {
+        const row = table.insertRow();
+        row.insertCell().textContent = index + 1;
+        row.insertCell().textContent = entry.name;
+        row.insertCell().textContent = entry.score;
+      });
+
+      leaderboardDiv.appendChild(table);
+    }
+
+    function displayLeaderboard() {
+      let leaderboardDiv = document.getElementById("leaderboard");
+      if (!leaderboardDiv) {
+        leaderboardDiv = document.createElement("div");
+        leaderboardDiv.id = "leaderboard";
+        document.body.appendChild(leaderboardDiv);
+      }
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+
+    document.getElementById("full-screen-button").addEventListener("click", toggleFullScreen);
+    document.getElementById("play-again-button").addEventListener("click", initGame);
+
+    initGame();
+    fetchLeaderboard()
+      .then(updateLeaderboardDisplay)
+      .catch(error => {
+        console.error("Failed to fetch leaderboard:", error);
+        const leaderboardDiv = document.getElementById("leaderboard");
+        if (leaderboardDiv) {
+          leaderboardDiv.innerHTML = "<p>Offline Mode: Leaderboard not available.</p>";
+        }
+      });
+    displayLeaderboard();
+
+    function debounce(func, wait) {
+      let timeout;
+      return function (...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+      };
+    }
+  </script>
+</body>
+</html>
